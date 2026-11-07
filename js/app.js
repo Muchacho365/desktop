@@ -100,7 +100,7 @@ const render = async () => {
                 <span class="nav-label">Import Backup</span>
             </div>
           </button>
-          <button class="nav-item" onclick="window.electronAPI.openNewWindow()">
+          <button class="nav-item" onclick="window.openNewWindow()">
             <span class="nav-icon">❐</span>
             <div class="nav-text">
                 <span class="nav-label">New Window</span>

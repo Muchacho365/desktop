@@ -549,21 +549,16 @@ export const setupSecurityActions = (render) => {
             symbols: document.getElementById("genSymbols").checked,
         };
 
-        let password;
-        if (window.electronAPI) {
-            password = await window.electronAPI.generatePassword(options);
-        } else {
-            let chars = "";
-            if (options.uppercase) chars += "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-            if (options.lowercase) chars += "abcdefghijklmnopqrstuvwxyz";
-            if (options.numbers) chars += "0123456789";
-            if (options.symbols) chars += "!@#$%^&*()_+-=[]{}|;:,.<>?";
-            if (!chars) chars = "abcdefghijklmnopqrstuvwxyz";
-            password = Array.from(
-                { length },
-                () => chars[Math.floor(Math.random() * chars.length)]
-            ).join("");
-        }
+        let chars = "";
+        if (options.uppercase) chars += "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        if (options.lowercase) chars += "abcdefghijklmnopqrstuvwxyz";
+        if (options.numbers) chars += "0123456789";
+        if (options.symbols) chars += "!@#$%^&*()_+-=[]{}|;:,.<>?";
+        if (!chars) chars = "abcdefghijklmnopqrstuvwxyz";
+        const password = Array.from(
+            { length },
+            () => chars[Math.floor(Math.random() * chars.length)]
+        ).join("");
 
         document.getElementById("generatedPassword").textContent = password;
     };

@@ -1,4 +1,5 @@
 // Utility functions
+const ENCRYPTION_KEY = "PersonalManager2024SecureKey";
 
 export const uuid = () => {
     return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -39,15 +40,21 @@ export const isOverdue = (dateStr) => {
 };
 
 export const encrypt = async (text) => {
-    if (window.electronAPI) {
-        return await window.electronAPI.encrypt(text);
+    if (typeof CryptoJS !== "undefined" && CryptoJS?.AES) {
+        return CryptoJS.AES.encrypt(text, ENCRYPTION_KEY).toString();
     }
     return btoa(text);
 };
 
 export const decrypt = async (text) => {
-    if (window.electronAPI) {
-        return await window.electronAPI.decrypt(text);
+    if (typeof CryptoJS !== "undefined" && CryptoJS?.AES) {
+        try {
+            const bytes = CryptoJS.AES.decrypt(text, ENCRYPTION_KEY);
+            const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+            if (decrypted) return decrypted;
+        } catch (e) {
+            console.error("Decryption error:", e);
+        }
     }
     try {
         return atob(text);
@@ -57,9 +64,7 @@ export const decrypt = async (text) => {
 };
 
 export const copyToClipboard = async (text) => {
-    if (window.electronAPI) {
-        await window.electronAPI.copyToClipboard(text);
-    } else {
+    if (navigator?.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
     }
     showToast("Copied to clipboard!");
