@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::panic;
 use tauri::Manager;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -107,10 +106,6 @@ async fn load_data(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
 }
 
 fn main() {
-    panic::set_hook(Box::new(|panic_info| {
-        eprintln!("CRITICAL TAURI PANIC RECOVERED: {:?}", panic_info);
-    }));
-
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .invoke_handler(tauri::generate_handler![get_device_id, save_data, load_data])
