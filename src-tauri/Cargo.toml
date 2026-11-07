@@ -1,0 +1,16 @@
+[package]
+name = "my-personal-manager"
+version = "1.1.0"
+description = "Muchacho Personal Manager"
+authors = ["Muchacho"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-store = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }

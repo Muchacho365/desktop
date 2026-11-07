@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Muchacho Personal Manager",
+  "version": "1.1.0",
+  "identifier": "com.muchacho.personal-manager",
+  "build": {
+    "frontendDist": "../"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Muchacho Personal Manager",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "store": {}
+  }
+}
