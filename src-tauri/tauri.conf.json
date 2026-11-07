@@ -4,7 +4,10 @@
   "version": "1.1.0",
   "identifier": "com.muchacho.personal-manager",
   "build": {
-    "frontendDist": "../"
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build:frontend",
+    "frontendDist": "../dist"
   },
   "app": {
     "withGlobalTauri": true,

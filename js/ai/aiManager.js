@@ -8,7 +8,7 @@ import { showToast } from "../utils.js";
 
 class AiManager {
     constructor() {
-        this.worker = new Worker("js/ai/aiWorker.js");
+        this.worker = new Worker("/js/ai/aiWorker.js");
         this.callbacks = new Map();
         this.setupWorker();
     }
