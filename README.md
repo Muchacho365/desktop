@@ -1,4 +1,4 @@
-# Muchacho Personal Manager (Tauri 2.0 Edition)
+# Personal Manager (Tauri 2.0 Edition)
 
 A high-performance, ultra-lightweight desktop productivity suite built with **Tauri 2.0**, **Rust**, and modern **ES Modules**. Manage your tasks, secure credentials, reading lists, video collections, calendar schedule, notes, and local AI workflows with zero bloat and military-grade persistence.
 
