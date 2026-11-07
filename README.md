@@ -10,8 +10,8 @@ A high-performance, ultra-lightweight desktop productivity suite built with **Ta
 - **Self-Healing Rust Backend (`src-tauri/src/main.rs`)**:
   - **Atomic File Swapping**: Every state mutation is buffered to a temporary `.tmp` file and atomically swapped to disk using OS-level file swaps to eliminate power-loss data corruption.
   - **Automated Fallback & Backup Recovery**: Maintains an automatic `appData.json.bak` shadow backup. If primary data is corrupted or unreadable, the backend self-heals by restoring from the backup buffer.
-  - **Panic Suppression**: Top-level panic hooks ensure runtime panics are intercepted without crashing the user session.
-  - **Unique Device Identification**: Provides high-entropy machine hardware identifiers (`get_device_id`) for cloud synchronization.
+  - **Clear Startup Errors**: Runtime startup failures are reported by Tauri instead of being hidden by a custom panic hook.
+  - **Unique Device Identification**: Provides a persistent device ID for local storage and cloud synchronization.
 - **Dynamic Environment Loading**: Complete removal of hardcoded secrets; API credentials and Firebase endpoints are dynamically bound via `.env` (`import.meta.env`).
 - **Unified IPC Interface**: Fully refactored frontend state engine using `@tauri-apps/api/core` `invoke(...)` bridge.
 
@@ -29,7 +29,9 @@ A high-performance, ultra-lightweight desktop productivity suite built with **Ta
 - 📚 **Book Catalog**: Reading status tracking, rating, and embedded study notes.
 - 🎬 **Video Library**: Watchlist organization and link categorization.
 - 🤖 **On-Device AI Strategy**: Local TensorFlow.js & NLP pipeline for semantic indexing and task prioritization.
-- ☁️ **Cloud Synchronization Ready**: Designed for bidirectional sync with `PM-Android-App` via Firebase Firestore.
+- ☁️ **Cloud Synchronization**: Pulls and pushes the Android app's Firestore `pm_user_data` records, with live updates between connected devices.
+- 🪟 **Multiple Windows**: Opens additional app windows and shares local state changes between them.
+- 💾 **Backup Import / Export**: Imports and exports JSON backups from the desktop app.
 
 ---
 
@@ -179,6 +181,17 @@ Frontend modules communicate with the Rust backend via high-speed asynchronous c
 | `save_data` | `save_data(app, data: Value)` | Serializes JSON state, creates `.bak` copy, and performs atomic disk flush. |
 | `load_data` | `load_data(app)` | Reads `appData.json` with fallback to `appData.json.bak` on parse failure. |
 | `get_device_id` | `get_device_id(app)` | Retrieves or atomically provisions a persistent UUID device token. |
+
+### Cloud Sync and Backups
+
+Select **Sync Data** and enter the same email used in the Android app. The email is
+used to derive the same Firestore document ID as Android; the existing cloud data
+is pulled when present. Keep the Firebase config in the ignored local `.env` file.
+Firebase web API keys are public client identifiers, not server secrets; Firestore
+security rules must protect the data.
+
+**Export Backup** downloads a JSON copy of the current data. **Import Backup**
+replaces the current data with a selected JSON backup and then saves it locally.
 
 ### Data Storage Path:
 Your application data is stored safely in your user AppData directory:

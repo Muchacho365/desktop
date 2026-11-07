@@ -13,7 +13,17 @@ import {
     getLayoutClasses,
     setupLayoutActions,
 } from "./components/LayoutManager.js";
-import { showToast } from "./utils.js";
+import { closeModal, showToast } from "./utils.js";
+import { isTauri } from "@tauri-apps/api/core";
+import {
+    getAllWebviewWindows,
+    WebviewWindow,
+} from "@tauri-apps/api/webviewWindow";
+import {
+    getSyncIdentity,
+    setSyncIdentity,
+    syncWithCloud,
+} from "./sync/firebaseSync.js";
 
 const render = async () => {
     const app = document.getElementById("app");
@@ -203,58 +213,285 @@ window.checkForUpdates = () => {
     }
 };
 
-window.handleSync = () => {
+const applyCloudSnapshot = async (data) => {
+    const arraySections = [
+        "todos",
+        "passwords",
+        "apis",
+        "cards",
+        "videos",
+        "books",
+        "notes",
+        "events",
+    ];
+    arraySections.forEach((section) => {
+        const delta = data.__delta?.[section];
+        if (delta) {
+            const removedIds = new Set(
+                (delta.remove || []).map((id) => String(id)),
+            );
+            const items = state[section].filter(
+                (item) => !removedIds.has(String(item?.id ?? "")),
+            );
+            const indexes = new Map(
+                items.map((item, index) => [String(item?.id ?? ""), index]),
+            );
+            (delta.upsert || []).forEach((item) => {
+                const itemId = String(item?.id ?? "");
+                if (!itemId) return;
+                if (indexes.has(itemId)) {
+                    items[indexes.get(itemId)] = item;
+                } else {
+                    items.unshift(item);
+                    indexes.set(itemId, 0);
+                }
+            });
+            state[section] = items;
+        }
+        if (Object.prototype.hasOwnProperty.call(data, section)) {
+            state[section] = Array.isArray(data[section]) ? data[section] : [];
+        }
+    });
+    [
+        "aiAnalysis",
+        "prioritizedTodos",
+        "securityHealth",
+        "dailyBriefing",
+    ].forEach((section) => {
+        if (Object.prototype.hasOwnProperty.call(data, section)) {
+            state[section] = data[section] || null;
+        }
+    });
+    await save(render, { sync: false });
+};
+
+const requestSyncEmail = () =>
+    new Promise((resolve) => {
+        const modals = document.getElementById("modals");
+        modals.innerHTML = `
+            <div class="modal-overlay">
+                <form class="modal" id="syncEmailForm">
+                    <h2>Connect to cloud sync</h2>
+                    <p>Enter the same email address you use in the Android app.</p>
+                    <div class="form-group">
+                        <label for="syncEmail">Email</label>
+                        <input id="syncEmail" name="email" type="email" required
+                            autocomplete="email" placeholder="you@example.com">
+                    </div>
+                    <div style="display:flex; gap:12px; justify-content:flex-end;">
+                        <button class="btn btn-secondary" type="button" id="cancelSyncEmail">Cancel</button>
+                        <button class="btn btn-primary" type="submit">Connect</button>
+                    </div>
+                </form>
+            </div>
+        `;
+
+        const form = document.getElementById("syncEmailForm");
+        const finish = (email) => {
+            closeModal();
+            resolve(email);
+        };
+        form.addEventListener("submit", (event) => {
+            event.preventDefault();
+            finish(new FormData(form).get("email"));
+        });
+        document
+            .getElementById("cancelSyncEmail")
+            .addEventListener("click", () => finish(null));
+        modals
+            .querySelector(".modal-overlay")
+            .addEventListener("click", (event) => {
+                if (event.target === event.currentTarget) finish(null);
+            });
+        document.getElementById("syncEmail").focus();
+    });
+
+window.handleSync = async () => {
+    let identity = getSyncIdentity();
+    if (!identity) {
+        const email = await requestSyncEmail();
+        if (email === null) return;
+        try {
+            identity = setSyncIdentity(email);
+        } catch (error) {
+            console.error("[Sync] Could not set sync identity:", error);
+            showToast(error.message);
+            return;
+        }
+    }
+
     state.syncStatus = "syncing";
     render();
-    setTimeout(() => {
+    try {
+        const result = await syncWithCloud(getDataSnapshot(), applyCloudSnapshot);
         state.syncStatus = "idle";
-        showToast("Sync feature coming soon!");
+        showToast(
+            result.direction === "pulled"
+                ? `Pulled cloud data for ${identity.email}.`
+                : "Uploaded local data to the cloud.",
+        );
         render();
-    }, 1500);
+    } catch (error) {
+        state.syncStatus = "error";
+        console.error("[Sync] Could not sync with Firebase:", error);
+        showToast(`Sync failed: ${error.message}`);
+        render();
+    }
 };
 
 window.exportBackup = async () => {
-    if (!window.electronAPI) {
-        showToast("Export is available in the desktop app.");
-        return;
+    try {
+        await save(render);
+        const date = new Date().toISOString().slice(0, 10);
+        const blob = new Blob([JSON.stringify(getDataSnapshot(), null, 2)], {
+            type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `personal-manager-backup-${date}.json`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        showToast("Backup exported.");
+    } catch (error) {
+        console.error("[Backup] Export failed:", error);
+        showToast(`Export failed: ${error.message}`);
     }
-
-    await save(render);
-    const result = await window.electronAPI.exportData(getDataSnapshot());
-    if (!result || result.canceled) return;
-
-    if (result.error) {
-        console.error(result.error);
-        showToast("Export failed.");
-        return;
-    }
-
-    showToast("Backup exported.");
 };
 
 window.importBackup = async () => {
-    if (!window.electronAPI) {
-        showToast("Import is available in the desktop app.");
-        return;
-    }
-
     const confirmed = window.confirm(
-        "Importing a backup will replace your current data. Continue?"
+        "Importing a backup will replace your current data. Continue?",
     );
     if (!confirmed) return;
 
-    const result = await window.electronAPI.importData();
-    if (!result || result.canceled) return;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.hidden = true;
+    input.addEventListener(
+        "change",
+        async () => {
+            const [file] = input.files || [];
+            input.remove();
+            if (!file) return;
 
-    if (result.error) {
-        console.error(result.error);
-        showToast("Import failed.");
+            try {
+                const imported = JSON.parse(await file.text());
+                if (!imported || typeof imported !== "object" || Array.isArray(imported)) {
+                    throw new Error("The selected file is not a valid backup object.");
+                }
+                const supportedSections = [
+                    "todos",
+                    "passwords",
+                    "apis",
+                    "cards",
+                    "videos",
+                    "books",
+                    "notes",
+                    "events",
+                    "layout",
+                    "theme",
+                    "tab",
+                    "aiAnalysis",
+                    "prioritizedTodos",
+                    "securityHealth",
+                    "dailyBriefing",
+                ];
+                if (!supportedSections.some((key) => key in imported)) {
+                    throw new Error("The selected file does not contain Personal Manager data.");
+                }
+                for (const key of [
+                    "todos",
+                    "passwords",
+                    "apis",
+                    "cards",
+                    "videos",
+                    "books",
+                    "notes",
+                    "events",
+                ]) {
+                    if (key in imported && !Array.isArray(imported[key])) {
+                        throw new Error(`Backup field "${key}" must be an array.`);
+                    }
+                }
+                if (
+                    "layout" in imported &&
+                    (!imported.layout ||
+                        typeof imported.layout !== "object" ||
+                        Array.isArray(imported.layout))
+                ) {
+                    throw new Error('Backup field "layout" must be an object.');
+                }
+                if (
+                    "theme" in imported &&
+                    !["dark", "light"].includes(imported.theme)
+                ) {
+                    throw new Error('Backup field "theme" must be "dark" or "light".');
+                }
+
+                [
+                    "todos",
+                    "passwords",
+                    "apis",
+                    "cards",
+                    "videos",
+                    "books",
+                    "notes",
+                    "events",
+                    "layout",
+                    "theme",
+                    "tab",
+                    "aiAnalysis",
+                    "prioritizedTodos",
+                    "securityHealth",
+                    "dailyBriefing",
+                ].forEach((key) => {
+                    if (key in imported) state[key] = imported[key];
+                });
+                document.body.setAttribute("data-theme", state.theme);
+                await save(render);
+                showToast("Backup imported.");
+            } catch (error) {
+                console.error("[Backup] Import failed:", error);
+                showToast(`Import failed: ${error.message}`);
+            }
+        },
+        { once: true },
+    );
+    document.body.appendChild(input);
+    input.click();
+};
+
+window.openNewWindow = async () => {
+    if (!isTauri()) {
+        window.open(window.location.href, "_blank", "noopener");
         return;
     }
 
-    await loadData(render);
-    window.electronAPI.broadcastStateChange(getDataSnapshot());
-    showToast("Backup imported.");
+    try {
+        const windows = await getAllWebviewWindows();
+        const labels = new Set(windows.map(({ label }) => label));
+        let index = 1;
+        while (labels.has(`app-window-${index}`)) index += 1;
+
+        const newWindow = new WebviewWindow(`app-window-${index}`, {
+            url: window.location.href,
+            title: "Muchacho Personal Manager",
+            width: 1200,
+            height: 800,
+            resizable: true,
+        });
+        newWindow.once("tauri://error", (event) => {
+            console.error("[Window] Could not open a new window:", event.payload);
+            showToast("Could not open a new window.");
+        });
+    } catch (error) {
+        console.error("[Window] Could not open a new window:", error);
+        showToast(`Could not open a new window: ${error.message}`);
+    }
 };
 
 let searchTimeout = null;
@@ -292,7 +529,20 @@ const init = async () => {
     await loadData(render);
 
     // Initialize Sync
-    initSync(render);
+    await initSync(render);
+
+    if (getSyncIdentity()) {
+        try {
+            state.syncStatus = "syncing";
+            await syncWithCloud(getDataSnapshot(), applyCloudSnapshot);
+            state.syncStatus = "idle";
+        } catch (error) {
+            state.syncStatus = "error";
+            console.error("[Sync] Startup cloud sync failed:", error);
+            showToast(`Cloud sync failed: ${error.message}`);
+        }
+        render();
+    }
 
     // Listen for tray events
     if (window.electronAPI) {

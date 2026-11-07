@@ -1,5 +1,7 @@
 // State Management
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
+import { scheduleSyncPush } from "./sync/firebaseSync.js";
 
 export const state = {
     tab: "todos",
@@ -61,7 +63,10 @@ export const getDataSnapshot = () => ({
     dailyBriefing: state.dailyBriefing,
 });
 
-export const save = async (renderCallback) => {
+export const save = async (
+    renderCallback,
+    { sync = true, broadcast = true } = {},
+) => {
     state.saveStatus = "saving";
     if (renderCallback) renderCallback();
 
@@ -72,6 +77,13 @@ export const save = async (renderCallback) => {
     } catch (e) {
         console.warn("Tauri invoke save_data fallback to localStorage:", e);
         localStorage.setItem("appData", JSON.stringify(dataToSave));
+    }
+
+    if (broadcast && isTauri()) {
+        await emit("state-changed", dataToSave);
+    }
+    if (sync) {
+        scheduleSyncPush(dataToSave);
     }
 
     setTimeout(() => {
@@ -203,22 +215,27 @@ export const getDeviceId = async () => {
     }
 };
 
-export const initSync = (renderCallback) => {
-    // Multi-window / Tauri event sync listener
-    if (window.__TAURI__?.event?.listen) {
-        window.__TAURI__.event.listen("state-changed", (event) => {
-            const data = event.payload;
-            if (!data) return;
-            state.todos = data.todos || [];
-            state.passwords = data.passwords || [];
-            state.apis = data.apis || [];
-            state.cards = data.cards || [];
-            state.videos = data.videos || [];
-            state.books = data.books || [];
-            state.notes = data.notes || [];
-            state.events = data.events || [];
-            state.layout = data.layout || {};
-            if (renderCallback) renderCallback();
-        });
-    }
+export const initSync = async (renderCallback) => {
+    if (!isTauri()) return;
+
+    await listen("state-changed", ({ payload }) => {
+        if (!payload || typeof payload !== "object") return;
+        state.todos = payload.todos || [];
+        state.passwords = payload.passwords || [];
+        state.apis = payload.apis || [];
+        state.cards = payload.cards || [];
+        state.videos = payload.videos || [];
+        state.books = payload.books || [];
+        state.notes = payload.notes || [];
+        state.events = payload.events || [];
+        state.layout = payload.layout || {};
+        state.theme = payload.theme || state.theme;
+        state.tab = payload.tab || state.tab;
+        state.aiAnalysis = payload.aiAnalysis || null;
+        state.prioritizedTodos = payload.prioritizedTodos || null;
+        state.securityHealth = payload.securityHealth || null;
+        state.dailyBriefing = payload.dailyBriefing || null;
+        document.body.setAttribute("data-theme", state.theme);
+        if (renderCallback) renderCallback();
+    });
 };
