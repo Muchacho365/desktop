@@ -1,12 +1,13 @@
 // State Management
+import { invoke } from "@tauri-apps/api/core";
 
 export const state = {
     tab: "todos",
     search: "",
     todos: [],
     passwords: [],
-    apis: [], // New: API Keys
-    cards: [], // New: Credit Cards
+    apis: [], // API Keys
+    cards: [], // Credit Cards
     videos: [],
     books: [],
     notes: [],
@@ -19,7 +20,7 @@ export const state = {
     showDone: false,
     saveStatus: "saved",
     newTodoPriority: "medium",
-    newTodoText: "", // New: Persist input text
+    newTodoText: "", // Persist input text
     noteColor: "#fbbf24",
     syncStatus: "idle",
     theme: "dark",
@@ -66,10 +67,10 @@ export const save = async (renderCallback) => {
 
     const dataToSave = getDataSnapshot();
 
-    if (window.electronAPI) {
-        await window.electronAPI.saveData(dataToSave);
-        window.electronAPI.broadcastStateChange(dataToSave);
-    } else {
+    try {
+        await invoke("save_data", { data: dataToSave });
+    } catch (e) {
+        console.warn("Tauri invoke save_data fallback to localStorage:", e);
         localStorage.setItem("appData", JSON.stringify(dataToSave));
     }
 
@@ -83,25 +84,24 @@ export const loadData = async (renderCallback) => {
     let data = null;
     let recoveredFromStorage = false;
 
-    // 1. Try to load from file first
-    if (window.electronAPI) {
-        data = await window.electronAPI.loadData();
+    // 1. Try to load from Tauri IPC first
+    try {
+        data = await invoke("load_data");
+    } catch (e) {
+        console.warn("Tauri invoke load_data fallback to localStorage:", e);
     }
 
     // 2. Check for "appData" in localStorage (where data might be stuck)
-    // Only use localStorage if we didn't get data from the file
-    if (!data) {
+    if (!data || (typeof data === "object" && Object.keys(data).length === 0) || (Array.isArray(data.todos) && data.todos.length === 0)) {
         const localAppData = localStorage.getItem("appData");
         if (localAppData) {
             try {
                 const parsedLocalData = JSON.parse(localAppData);
-                // If we have local data, we should probably use it, especially if file data is null
-                // or if the user is reporting data loss (implying file data is stale/empty).
-                // For now, let's assume local data is the "latest" if it exists,
-                // effectively recovering the session.
-                data = parsedLocalData;
-                recoveredFromStorage = true;
-                console.log("Recovered data from localStorage['appData']");
+                if (parsedLocalData && Object.keys(parsedLocalData).length > 0) {
+                    data = parsedLocalData;
+                    recoveredFromStorage = true;
+                    console.log("Recovered data from localStorage['appData']");
+                }
             } catch (e) {
                 console.error("Failed to parse localStorage['appData']", e);
             }
@@ -141,7 +141,6 @@ export const loadData = async (renderCallback) => {
         if (data.events) {
             state.events = data.events;
         } else {
-            // Migrate legacy schedule and reminders
             const legacySchedule = data.schedule || [];
             const legacyReminders = data.reminders || [];
 
@@ -176,13 +175,13 @@ export const loadData = async (renderCallback) => {
         state.securityHealth = data.securityHealth || null;
         state.dailyBriefing = data.dailyBriefing || null;
 
-        // If we recovered data from localStorage, save it to file immediately
-        // to ensure persistence for next time.
-        if (recoveredFromStorage && window.electronAPI) {
-            await window.electronAPI.saveData(data);
-            // Optional: Clear appData to avoid confusion later?
-            // Better to keep it as a backup for now until confirmed safe.
-            // localStorage.removeItem("appData");
+        // If recovered data from localStorage, save to Tauri backend immediately
+        if (recoveredFromStorage) {
+            try {
+                await invoke("save_data", { data });
+            } catch (e) {
+                console.warn("Failed to persist recovered data to Tauri backend:", e);
+            }
         }
     }
 
@@ -190,10 +189,26 @@ export const loadData = async (renderCallback) => {
     if (renderCallback) renderCallback();
 };
 
+export const getDeviceId = async () => {
+    try {
+        return await invoke("get_device_id");
+    } catch (e) {
+        console.warn("Tauri invoke get_device_id fallback:", e);
+        let id = localStorage.getItem("pm_device_id");
+        if (!id) {
+            id = "device_" + crypto.randomUUID().replace(/-/g, "");
+            localStorage.setItem("pm_device_id", id);
+        }
+        return id;
+    }
+};
+
 export const initSync = (renderCallback) => {
-    if (window.electronAPI) {
-        window.electronAPI.onStateChange((data) => {
-            // Merge incoming state
+    // Multi-window / Tauri event sync listener
+    if (window.__TAURI__?.event?.listen) {
+        window.__TAURI__.event.listen("state-changed", (event) => {
+            const data = event.payload;
+            if (!data) return;
             state.todos = data.todos || [];
             state.passwords = data.passwords || [];
             state.apis = data.apis || [];
@@ -203,10 +218,6 @@ export const initSync = (renderCallback) => {
             state.notes = data.notes || [];
             state.events = data.events || [];
             state.layout = data.layout || {};
-
-            // Don't sync UI state like tab or search
-            // state.tab = data.tab;
-
             if (renderCallback) renderCallback();
         });
     }
