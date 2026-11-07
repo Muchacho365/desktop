@@ -6,7 +6,7 @@
 	"scripts": {
 		"start": "electron .",
 		"dev": "electron .",
-		"build": "electron-builder --linux"
+		"build": "electron-builder --win"
 	},
 	"author": {
 		"name": "Muchacho",
